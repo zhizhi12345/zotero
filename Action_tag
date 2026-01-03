@@ -1,0 +1,62 @@
+type: ActionsTagsBackup
+author: zhangkaitai
+platformVersion: 7.0.30
+pluginVersion: 2.2.3
+timestamp: '2026-01-03T10:40:07.051Z'
+actions:
+  1754013715729-8a43yFd7:
+    event: 8
+    operation: 4
+    data: "/**\r\n * @file Download Free-Access or Sci-Hub PDF\r\n * @author cerenkov\r\n * @version 0.1\r\n * @requires set up extensions.zotero.findPDFs.resolvers in the Advanced Config Editor, or via the Sci-PDF plugin\r\n * @usage Select multiple items then trigger in the context menu\r\n * @see https://github.com/crnkv/Zotero-Action-Scripts-Collection\r\n * suggested Menu Label: Download Free-Access or Sci-Hub PDF (Multiple)\r\n */\r\n\r\nconst Zotero = require(\"Zotero\");\r\nconst SCRIPTNAME = \"Download PDF\";\r\n\r\nfunction popup(msg, timeout = null) {\r\n    const pw = new Zotero.ProgressWindow();\r\n    pw.changeHeadline(SCRIPTNAME);\r\n    pw.addDescription(msg);\r\n    pw.show();\r\n    if (timeout) pw.startCloseTimer(timeout * 1000);\r\n}\r\nfunction log(msg) {\r\n    if (typeof msg == \"object\") {\r\n        Zotero.log(JSON.stringify(msg), \"info\");\r\n    } else {\r\n        Zotero.log(msg, \"info\");\r\n    }\r\n}\r\nfunction alert(msg) {\r\n    Zotero.alert(null, SCRIPTNAME, `[${SCRIPTNAME}] ${msg}`);\r\n}\r\nfunction warn(msg) {\r\n    Zotero.warn(`[${SCRIPTNAME}] ${msg}`);\r\n}\r\nfunction error(msg) {\r\n    Zotero.logError(`[${SCRIPTNAME}] ${msg}`);\r\n}\r\n\r\n// Function to process downloading of each parent item\r\nasync function processDownloading(item) {\r\n    if (!item.isRegularItem()) {\r\n        // Skip not-regular (Note/Attachment/Annotation) items\r\n        return { downloaded: 0, errors: 0 };\r\n    }\r\n\r\n    if (item.itemType == \"webpage\" || item.itemType == \"book\") {\r\n        // Skip webpage items and book items\r\n        return { downloaded: 0, errors: 0 };\r\n    }\r\n\r\n    if (Zotero.Items.get(item.getAttachments())\r\n        .some(\r\n            i => i.isPDFAttachment() \r\n            && (i.getField(\"url\").match(/sci-hub/i) \r\n                || i.getField(\"title\").match(/sci-hub/i) \r\n                || i.getField(\"title\").match(/published/i))\r\n        )) {\r\n        // Skip items that already have Sci-Hub PDF or Published Version PDF\r\n        return { downloaded: 0, errors: 0 };\r\n    }\r\n\r\n    const itemTitle = item.getField(\"title\");\r\n    if (!item.getField('DOI') && !item.getExtraField('DOI')) {\r\n        error(`no DOI: ${itemTitle}`);\r\n        popup(`no DOI: ${itemTitle}`);\r\n        return { downloaded: 0, errors: 1 };\r\n    } else if ((item.getField('DOI') || item.getExtraField('DOI')).match(/arxiv/i)) {\r\n        if (item.itemType == \"preprint\" || item.itemType == \"conferencePaper\") {\r\n            // silently skip Preprints and ConferencePapers that reasonably don't have non-arXiv DOI\r\n            warn(`DOI is arXiv for Preprint or PonferencePaper: ${itemTitle}`);\r\n            return { downloaded: 0, errors: 0 };\r\n        } else {\r\n            error(`DOI is arXiv: ${itemTitle}`);\r\n            popup(`DOI is arXiv: ${itemTitle}`);\r\n            return { downloaded: 0, errors: 1 };\r\n        }\r\n    }\r\n\r\n    let resolvers = Zotero.Attachments.getFileResolvers(item, 'doi');\r\n    let attachment = await Zotero.Attachments.addFileFromURLs(item, resolvers);\r\n    if (attachment) {\r\n        attachment.setField('title', 'Published Version');\r\n        await attachment.saveTx();\r\n        return { downloaded: 1, errors: 0 };\r\n    }\r\n\r\n    // TODO: distinguish network error from sci-hub-resolved file-not-found\r\n    resolvers = Zotero.Attachments.getFileResolvers(item, 'custom');\r\n    attachment = await Zotero.Attachments.addFileFromURLs(item, resolvers, {onRequestError: function (e) { error(`Network error when downloading (${e.status}): ${itemTitle}`); return false; }});\r\n    if (attachment) {\r\n        attachment.setField('title', 'Published Version (Sci-Hub)');\r\n        await attachment.saveTx();\r\n        return { downloaded: 1, errors: 0 };\r\n    }\r\n\r\n    error(`Download failed (no file, or network errors on download or on resolver): ${itemTitle}`);\r\n    popup(`Download failed: ${itemTitle}`);\r\n    return { downloaded: 0, errors: 1 };\r\n}\r\nfunction prepareTopLevelItemsList() {\r\n    if (!items && !item) {\r\n        alert(\"No item or items array provided.\");\r\n        return false;\r\n    }\r\n    if (item) {\r\n        // reject script calls with items=[], item=...\r\n        return false;\r\n    }\r\n    if (items?.length > 0) {\r\n        // accept script calls with items=[...], item=undefined\r\n        return Zotero.Items.getTopLevel(items);\r\n    } else {\r\n        return false;\r\n    }\r\n}\r\n\r\n// Main execution block\r\n(async () => {\r\n    let targetItems = prepareTopLevelItemsList();\r\n    if (!targetItems) {\r\n        return;\r\n    }\r\n    let totalItems = targetItems.length;\r\n    let totalDownloaded = 0;\r\n    let totalErrors = 0;\r\n    let totalSkipped = 0;\r\n    const pw = new Zotero.ProgressWindow();\r\n    pw.changeHeadline(SCRIPTNAME);\r\n    let itemProgress = new pw.ItemProgress(null, `Checking all ${totalItems} items.`);\r\n    itemProgress.setProgress((totalDownloaded+totalErrors+totalSkipped)/totalItems*100);\r\n    pw.show();\r\n    for (const item of targetItems) {\r\n        const result = await processDownloading(item);\r\n        totalDownloaded += result.downloaded;\r\n        totalErrors += result.errors;\r\n        totalSkipped += 1 - result.downloaded - result.errors;\r\n        itemProgress.setText(`${totalDownloaded} succeeded, ${totalErrors} failed and ${totalSkipped} skipped in all ${totalItems} items.`);\r\n        itemProgress.setProgress((totalDownloaded+totalErrors+totalSkipped)/totalItems*100);\r\n    }\r\n\r\n    // Display a summary alert only if there are significant outcomes to report\r\n    if (totalDownloaded > 0 || totalErrors > 0) {\r\n        alert(`Successfully downloaded ${totalDownloaded} attachments. Errors: ${totalErrors}`);\r\n    }\r\n})();"
+    shortcut: ''
+    enabled: true
+    menu: ''
+    name: zotero_sci
+    showInMenu:
+      item: true
+      collection: false
+      tools: false
+      reader: false
+      readerAnnotation: false
+  default1:
+    name: Remove Unread When Close Tab
+    event: 3
+    operation: 2
+    data: /unread
+    shortcut: ''
+    enabled: true
+  default0:
+    name: Add Unread When Create Item
+    event: 1
+    operation: 1
+    data: /unread
+    shortcut: ''
+    enabled: true
+  1755843142893-8a43yFd7:
+    event: 1
+    operation: 4
+    data: "// Translate item title and abstract automatically\n// Wait for abstract to be filled before translating abstract\n// author windingwind, PhoenixHwang, northword\n// link https://github.com/windingwind/zotero-tag/discussions/107\n// usage Event=Create Item\n\nconst Zotero = require(\"Zotero\");\nif (!Zotero.PDFTranslate) {\n\treturn \"[Action:Translate Title and Abstract] Translate for Zotero is not installed or disabled.\";\n}\nif (!item) {\n\treturn \"[Action:Translate Title and Abstract] Target item is empty\";\n}\n\nconst skipLang = [\"\", \"zh\", \"zh-CN\"];\nconst lang = item.getField(\"language\");\n\nif (skipLang.includes(lang)) {\n\treturn \"[Action:Translate Title and Abstract] Skip due to language\"\n}\n\nconst title = item.getField(\"title\");\nconst abstract = item.getField(\"abstractNote\");\n\nconst titleResult = (await Zotero.PDFTranslate.api.translate(title)).result;\nZotero.PDFTranslate.data.ztoolkit.ExtraField.setExtraField(item, \"titleTranslation\", titleResult);\n\nlet abstractResult = \"\";\nif (abstract) {\n    abstractResult = (await Zotero.PDFTranslate.api.translate(abstract)).result;\n    Zotero.PDFTranslate.data.ztoolkit.ExtraField.setExtraField(item, \"abstractTranslation\", abstractResult);\n} else {\n    const observerID = Zotero.Notifier.registerObserver({\n        notify: async (event, type, ids, extraData) => {\n            if (event === 'modify' && type === 'item' && ids.includes(item.id)) {\n                const newAbstract = item.getField('abstractNote');\n                if (newAbstract) {\n                    abstractResult = (await Zotero.PDFTranslate.api.translate(newAbstract)).result;\n                    Zotero.PDFTranslate.data.ztoolkit.ExtraField.setExtraField(item, \"abstractTranslation\", abstractResult);\n                    Zotero.Notifier.unregisterObserver(observerID);\n                }\n            }\n        }\n    }, ['item']);\n}\n\nreturn `[Action:Translate Title and Abstract] successfully translate title ${title} to ${titleResult} and abstract.`;\n"
+    shortcut: ''
+    enabled: true
+    menu: ''
+    name: 自动翻译
+    showInMenu:
+      item: true
+      collection: false
+      tools: false
+      reader: false
+      readerAnnotation: false
+  1755427782279-8a43yFd7:
+    event: 2
+    operation: 4
+    data: "// Auto-run Better Notes template when opening an item for the first time, only if other notes aren't present.\r\n// @author windingwind\r\n// @author wklimowicz\r\n// @link https://github.com/windingwind/zotero-tag/discussions/109\r\n// @usage Event=Open File\r\n\r\nconst window = require(\"window\");\r\n\r\nif (!Zotero.BetterNotes?.api.note?.insert) {\r\n\treturn \"[Action:Auto-Template] Better Notes for Zotero > 1.1.4-21 is not installed or disabled.\";\r\n}\r\nif (!item) {\r\n\treturn \"[Action:Auto-Template] Target item is empty\";\r\n}\r\n\r\n// Check if an auto-template note already exists\r\nconst autoTemplateTag = \"auto-template\";\r\nconst notes = Zotero.Items.get(item.getNotes());\r\n\r\n// Replace the original if statement\r\n// if (notes.some(note => note.getTags().some(obj => obj.tag === autoTemplateTag))) {\r\n// \treturn \"[Action:Auto-Template] Auto-template already exists\";\r\n// }\r\n// With this:\r\nif (notes.length > 0) {\r\n\treturn;\r\n}\r\n\r\nconst prefsKey = \"extensions.actionsTags.customAction.autoRunBNTemplate\";\r\n\r\n// Get template name\r\nlet templateName = Zotero.Prefs.get(prefsKey, true);\r\nlet templateContent = Zotero.BetterNotes.api.template.getTemplateText(templateName);\r\nif (!templateContent) {\r\n\t// Template name is not defined or invalid. Get from input\r\n\tconst templateNames = Zotero.BetterNotes.api.template.getTemplateKeys();\r\n\r\n\tfunction selectItems(itemList) {\r\n\t\tvar io = { dataIn: itemList, dataOut: null };\r\n\t\twindow.openDialog(\"chrome://scaffold/content/select.xhtml\",\r\n\t\t\t\"_blank\", \"chrome,modal,centerscreen,resizable=yes\", io);\r\n\t\treturn io.dataOut;\r\n\t}\r\n\r\n\ttemplateName = Object.values(selectItems(templateNames))[0];\r\n\ttemplateContent = Zotero.BetterNotes.api.template.getTemplateText(templateName);\r\n\tif (!templateContent) {\r\n\t\treturn \"[Action:Auto-Template] Template is invalid\";\r\n\t}\r\n\tZotero.Prefs.set(prefsKey, templateName, true);\r\n}\r\n\r\nconst parentItem = Zotero.Items.getTopLevel([item])[0];\r\n\r\nconst noteItem = new Zotero.Item(\"note\");\r\nnoteItem.libraryID = parentItem.libraryID;\r\nnoteItem.parentID = parentItem.id;\r\nnoteItem.addTag(autoTemplateTag, 0);\r\nawait noteItem.saveTx();\r\n\r\nlet html = \"\";\r\nif (templateName.toLowerCase().startsWith(\"[item]\")) {\r\n\thtml = await Zotero.BetterNotes.api.template.runItemTemplate(templateName, {\r\n\t\titemIds: [parentItem.id],\r\n\t\ttargetNoteId: noteItem.id,\r\n\t});\r\n} else {\r\n\thtml = await Zotero.BetterNotes.api.template.runTextTemplate(templateName, {\r\n\t\ttargetNoteId: noteItem.id,\r\n\t});\r\n}\r\nawait Zotero.BetterNotes.api.note.insert(\r\n\tnoteItem,\r\n\thtml,\r\n\t-1,\r\n);\r\n\r\nreturn `[Action:Auto-Template] Note ${noteItem.getNoteTitle()} is created on item ${item.getField(\"title\")} from template ${templateName}`;"
+    shortcut: ''
+    enabled: true
+    menu: ''
+    name: 添加文献笔记
+    showInMenu:
+      item: true
+      collection: false
+      tools: true
+      reader: false
+      readerAnnotation: false
