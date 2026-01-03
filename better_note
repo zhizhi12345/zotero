@@ -1,0 +1,58 @@
+<p><b>${(() => {
+      const title = topItem.getField("title");
+      const titleTranslation = topItem.getField("titleTranslation");
+	  {topItem.getField("DOI")}
+      if (titleTranslation) {
+        return `文献笔记：${title} (${titleTranslation})`;
+      } else {
+        return `文献笔记：${title}`;
+      }
+    })()}</b></p>
+
+<!-- 期刊 -->
+    <tr>
+      <td style="color:#193c47; background-color:#f3faf4; padding:8px;">
+        <b style="color:#193c47;">期刊: <b style="color:#FF0000">${topItem.getField('publicationTitle')}</b></b><b style="color:#193c47;"> （发表日期: ${topItem.getField("date")}）</b>
+      </td>
+    </tr>
+	${topItem.getField("titleTranslation")}
+<!-- 期刊分区 -->
+    <tr><td>
+        <b>期刊分区: </b>
+        <!-- In Zotero7, the tags of Ethereal Style plugin are referenced. Please install Ethereal Style in advance. -->
+        ${{
+        let space = " ㅤㅤ ㅤㅤ"
+        return Array.prototype.map.call(
+          Zotero.ZoteroStyle.api.renderCell(topItem, "publicationTags").childNodes,
+          e => {
+            e.innerText =  space + e.innerText + space;
+            return e.outerHTML
+          }
+          ).join(space)
+        }}$
+    </td></tr>
+	
+	<p><b>作者年份:	${topItem.getCreators().map((v)=>v.firstName+" "+v.lastName).join("; ")};
+	 ${topItem.getField("date")}
+		</b></p>
+
+	<p><b> ${{
+		const doi = topItem.getField("DOI");
+		const url = topItem.getField("url");
+		if (doi) {
+		return `DOI: <a href="https://doi.org/${doi}">${doi}</a>`;
+		} else {
+		return `URL: <a href="${url}">${url}</a>`;
+		}
+		}}$	</b></p>
+<p><b>笔记日期: ${(() => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const formattedDate = `[[${year}-${month}-${day}]] ${hours}:${minutes}:${seconds}`;
+    return formattedDate;
+})()}</b></p>
